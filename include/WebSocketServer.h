@@ -1,11 +1,17 @@
-#pragma once
+ï»¿#pragma once
 #include <iostream>
 #include <sys/epoll.h>
+#include <vector>
+#include "coroutine_task.h"
+#include "global_export.h"
 
 #define LISTEN_MAX_CONN 1024
 #define EPOLL_WAIT_MAX_CONN 512
 
-class WebSocketServer
+class Scheduler_epoll;
+
+
+class WEBSOCKET_SERVER_LIB_EXPORT WebSocketServer
 {
 public:
 	WebSocketServer(unsigned short port);
@@ -14,22 +20,30 @@ public:
 
 	~WebSocketServer();
 
-	// 1.³õÊ¼»¯·şÎñÆ÷Á¬½Ó
+	// 1.åˆå§‹åŒ–æœåŠ¡å™¨è¿æ¥
 	void initServer();
 
-	// 2.³õÊ¼»¯¼àÌıÎÄ¼şÃèÊö·û
+	// 2.åˆå§‹åŒ–ç›‘å¬æ–‡ä»¶æè¿°ç¬¦
 	void initListenfd();
 
-	// 3.´¦Àí¼àÌı
-	void epollAccept();
+	// 3.åç¨‹ï¼šç”¨äºå¼‚æ­¥è¯»å–è¿æ¥çŠ¶æ€
+	task epollAccept();
+
+	// 4.åç¨‹ï¼šç”¨äºå¤„ç†è¿æ¥
+	task handleConnection(int cfd);
 
 private:
-	// ·şÎñÆ÷¶Ë¿Ú
+	// æœåŠ¡å™¨ç«¯å£
 	unsigned short m_port = 7999;
-	// ·şÎñÆ÷¼àÌıÎÄ¼şÃèÊö·û
+	// æœåŠ¡å™¨ç›‘å¬æ–‡ä»¶æè¿°ç¬¦
 	int m_lfd;
 
 	int m_epfd;
 	epoll_event m_ev;
 	epoll_event m_evs[EPOLL_WAIT_MAX_CONN];
+
+	// epollåç¨‹è°ƒåº¦å™¨
+	Scheduler_epoll* m_scheduler;
+	task m_task;
+	std::vector<task> m_tasks;
 };

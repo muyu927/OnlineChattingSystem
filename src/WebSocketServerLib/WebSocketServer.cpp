@@ -1,13 +1,18 @@
-#include "WebSocketServer.h"
+ï»¿#include "WebSocketServer.h"
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/ip.h>
 #include <unistd.h>
+#include "Awaiter_AsyncAccept.h"
+#include "Awaiter_HandleConnectionRecv.h"
+#include "Scheduler_epoll.h"
+#include "coroutine_task.h"
+#include <format>
 
 
 
 WebSocketServer::WebSocketServer(unsigned short port)
-	: m_port(port)
+	: m_port(port), m_scheduler(new Scheduler_epoll)
 {
 	initServer();
 }
@@ -16,27 +21,33 @@ WebSocketServer::~WebSocketServer()
 {
 	close(m_epfd);
 	close(m_lfd);
+
+	delete m_scheduler;
 }
 
 void WebSocketServer::initServer()
 {
-	// 1¡¢³õÊ¼»¯¼àÌıÎÄ¼şÃèÊö·û
+	// 1ã€åˆå§‹åŒ–ç›‘å¬æ–‡ä»¶æè¿°ç¬¦
 	initListenfd();
 
-	// 2¡¢epoll¼àÌı
-	epollAccept();
+	// 2ã€å¼€å¯ç›‘å¬åç¨‹
+	task t = epollAccept();
+	m_tasks.emplace_back(std::move(t));
+
+	// 3ã€å¼€å¯å¾ªç¯ç›‘å¬
+	if (m_scheduler) m_scheduler->run_accept_fd();
 }
 
 void WebSocketServer::initListenfd()
 {
-	// 1¡¢´´½¨·şÎñÆ÷¼àÌıÎÄ¼şÃèÊö·û
+	// 1ã€åˆ›å»ºæœåŠ¡å™¨ç›‘å¬æ–‡ä»¶æè¿°ç¬¦
 	m_lfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (m_lfd == -1)
 	{
 		perror("socket");
 	}
 
-	// 2¡¢ÉèÖÃ¶Ë¿Ú¸´ÓÃ
+	// 2ã€è®¾ç½®ç«¯å£å¤ç”¨
 	int opt = 1;
 	if (-1 == setsockopt(m_lfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)))
 	{
@@ -48,54 +59,61 @@ void WebSocketServer::initListenfd()
 	address.sin_port = htons(m_port);
 	address.sin_addr.s_addr = INADDR_ANY;
 
-	// 3¡¢°ó¶¨¶Ë¿Ú
+	// 3ã€ç»‘å®šç«¯å£
 	if (-1 == bind(m_lfd, (sockaddr*)(&address), sizeof(address)) )
 	{
 		perror("bind");
 	}
 
-	// 4¡¢ÉèÖÃ¼àÌıÉÏÏŞ
+	// 4ã€è®¾ç½®ç›‘å¬ä¸Šé™
 	if (-1 == listen(m_lfd, LISTEN_MAX_CONN))
 	{
 		perror("listen");
 	}
 }
 
-void WebSocketServer::epollAccept()
+task WebSocketServer::epollAccept()
 {
-	m_epfd = epoll_create1(0);
-	if (m_epfd == -1)
+	Awaiter_AsyncAccept a{ m_lfd, m_scheduler };
+
+	std::cout << "å¼€å¯Awaiter_AsyncAcceptç­‰å¾…ä½“åç¨‹\n";
+	while (true)
 	{
-		perror("epoll_create1");
+		int cfd = co_await a;
+		std::cout << "æ”¶åˆ°æ–°çš„è¿æ¥ï¼Œcfd = " << cfd << '\n';
+		
+		if (cfd == -1)
+		{
+			perror("accept4");
+			continue;
+		}
+		task t = handleConnection(cfd);
+		m_tasks.emplace_back(std::move(t));
 	}
 
-	m_ev.events = EPOLLIN | EPOLLET; // ¿É¶ÁÇÒ±ßÔµ´¥·¢
-	m_ev.data.fd = m_lfd;		// ·şÎñÆ÷¼àÌıÎÄ¼şÃèÊö·û
-	if (-1 == epoll_ctl(m_epfd, EPOLL_CTL_ADD, m_lfd, &m_ev))
-	{
-		perror("epoll_ctl add lfd");
-	}
+	co_return;
+}
+
+task WebSocketServer::handleConnection(int cfd)
+{
+	std::cout << "è·å–åˆ°æ–°çš„å®¢æˆ·ç«¯è¿æ¥ï¼Œcfd = " << cfd << '\n';
+
+	char buf[1024];
+	Awaiter_HandleConnectionRecv a{ cfd, m_scheduler, buf, sizeof(buf) };
 
 	while (true)
 	{
-		int nfds = epoll_wait(m_epfd, m_evs, EPOLL_WAIT_MAX_CONN, -1);
-		if (nfds == -1)
-		{
-			perror("epoll_wait");
-		}
+		ssize_t data_len = co_await a;
 
-		for (int i = 0; i < nfds; ++i)
-		{
-			// ¼àÌıµ½ĞÂÁ¬½Ó
-			if (m_evs[i].data.fd == m_lfd)
-			{
+		if (data_len <= 0) break;
 
-			}
-			// ¼àÌıµ½ÊÂ¼ş´¦Àí
-			else
-			{
-
-			}
-		}
+		std::string recevied_data(buf, data_len);
+		std::cout << std::format("è¯»å–åˆ°å®¢æˆ·ç«¯{}çš„æ•°æ®:{}\n", cfd, recevied_data);
 	}
+
+	m_scheduler->remove_event(cfd);
+	close(cfd);
+	co_return;
 }
+
+
