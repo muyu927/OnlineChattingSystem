@@ -79,14 +79,12 @@ task WebSocketServer::epollAccept()
 	std::cout << "开启Awaiter_AsyncAccept等待体协程\n";
 	while (true)
 	{
-		int cfd = co_await a;
-		std::cout << "收到新的连接，cfd = " << cfd << '\n';
-		
+		int cfd = co_await a;		
 		if (cfd == -1)
 		{
-			perror("accept4");
 			continue;
 		}
+
 		task t = handleConnection(cfd);
 		m_tasks.emplace_back(std::move(t));
 	}
@@ -96,7 +94,7 @@ task WebSocketServer::epollAccept()
 
 task WebSocketServer::handleConnection(int cfd)
 {
-	std::cout << "获取到新的客户端连接，cfd = " << cfd << '\n';
+	std::cout << "新连接：获取到新的客户端连接，cfd = " << cfd << '\n';
 
 	char buf[1024];
 	Awaiter_HandleConnectionRecv a{ cfd, m_scheduler, buf, sizeof(buf) };

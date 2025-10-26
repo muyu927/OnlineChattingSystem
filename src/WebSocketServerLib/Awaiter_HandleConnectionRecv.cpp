@@ -21,6 +21,5 @@ void Awaiter_HandleConnectionRecv::await_suspend(std::coroutine_handle<> handle)
 size_t Awaiter_HandleConnectionRecv::await_resume() noexcept
 {
 	m_bytes_read = recv(m_cfd, m_buf, m_buf_len, 0); // 非阻塞读
-	std::cout << "客户端" << m_cfd << " 读取到字节数:" << m_bytes_read << '\n';
 	return m_bytes_read;
 }

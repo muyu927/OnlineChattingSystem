@@ -4,8 +4,6 @@
 #include <iostream>
 #include "CommonToolsExport.h"
 
-COMMON_TOOLS_EXPORT std::atomic<size_t> g_coroutine_count = 0;
-
 // 协程返回类型
 struct COMMON_TOOLS_EXPORT task
 {
@@ -14,7 +12,6 @@ struct COMMON_TOOLS_EXPORT task
 		// 1、协程的返回对象
 		task get_return_object() 
 		{ 
-			g_coroutine_count.fetch_add(1, std::memory_order_relaxed); 
 			//std::cout << "创建新的协程，当前协程数为:" << g_coroutine_count << '\n';  
 			return task{ std::coroutine_handle<promise_type>::from_promise(*this) }; 
 		}
@@ -60,7 +57,6 @@ struct COMMON_TOOLS_EXPORT task
 		if (m_handle) 
 		{
 			m_handle.destroy();
-			g_coroutine_count.fetch_sub(1, std::memory_order_relaxed); 
 			//std::cout << "释放协程，当前协程数为:" << g_coroutine_count << '\n';
 		}
 	} 

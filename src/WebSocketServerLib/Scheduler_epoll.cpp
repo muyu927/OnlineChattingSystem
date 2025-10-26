@@ -44,10 +44,9 @@ void Scheduler_epoll::remove_event(int fd)
 void Scheduler_epoll::run_accept_fd()
 {
 	epoll_event events[EPOLL_WAIT_MAX_CONN];
-
+	std::cout << "主循环开启，开始监听客户端请求！\n";
 	while (true)
 	{
-		std::cout << "主循环开始监听连接\n";
 		int nfds = epoll_wait(m_epfd, events, EPOLL_WAIT_MAX_CONN, -1);
 		if (nfds == -1)
 		{
@@ -57,9 +56,7 @@ void Scheduler_epoll::run_accept_fd()
 		for (int i = 0; i < nfds; ++i)
 		{
 			// 上树的event已经绑定了对应的等待器对象，使用对象指针恢复协程时，会恢复对应等待器对象的await_resume函数
-			std::cout << "监听到第" << i + 1 << "个连接.文件描述符为:" /*<< events[i].data.fd*/ << '\n';
 			auto handle = std::coroutine_handle<>::from_address(events[i].data.ptr);
-			std::cout << "恢复协程句柄：" << handle.address() << std::endl;
 			handle.resume();
 		}
 	}
