@@ -45,5 +45,6 @@ private:
 	// epoll协程调度器
 	Scheduler_epoll* m_scheduler;
 	task m_task;
-	std::vector<task> m_tasks;
+	std::vector<task> m_tasks;	// 完成的协程要删除
+	std::mutex m_tasks_mtx;		// 协程数组锁
 };

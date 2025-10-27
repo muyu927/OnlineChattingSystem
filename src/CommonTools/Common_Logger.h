@@ -1,10 +1,10 @@
 #pragma once
-#include "coroutine_task.h"
-#include "Awaiter_LoggerSystem.h"
 #include <chrono>
 #include <mutex>
 #include <condition_variable>
 #include <queue>
+#include <atomic>
+#include <fstream>
 
 #define g_pLogger Common_Logger::getLoggerInstance()
 
@@ -45,40 +45,16 @@ class SafeLogQueue
 public:
     SafeLogQueue(size_t max_size = 10000) : max_size_(max_size) {}
 
-    // 放入元素（非阻塞，满则丢弃）
-    bool push(const T& item) 
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        if (queue_.size() >= max_size_) 
-        {
-            return false; // 队列满，丢弃日志（避免阻塞业务）
-        }
-        queue_.push(item);
-        cv_.notify_one(); // 通知消费者
-        return true;
-    }
+    // 1、放入元素（非阻塞，满则丢弃）
+    bool push(const T& item);
+    
 
-    // 取出元素（阻塞，直到有元素或停止）
-    bool pop(T& item, bool& stop) 
-    {
-        std::unique_lock<std::mutex> lock(mtx_);
-        cv_.wait(lock, [this, &stop]() {
-            return !queue_.empty() || stop;
-            });
-        if (stop) return false; // 退出信号
-        item = queue_.front();
-        queue_.pop();
-        return true;
-    }
+    // 2、取出元素（阻塞，直到有元素或停止）
+    bool pop(T& item, bool& stop);
+    
 
-    // 清空队列
-    void clear() 
-    {
-        std::lock_guard<std::mutex> lock(mtx_);
-        while (!queue_.empty()) {
-            queue_.pop();
-        }
-    }
+    // 3、清空队列
+    void clear();
 
 private:
     std::queue<T> queue_;
@@ -94,7 +70,7 @@ public:
 	static Common_Logger& getLoggerInstance();
 
 	// 2、初始化日志系统
-	void initLoggerSystem();
+	void initLoggerSystem(std::string log_path, size_t max_file_size, int max_files);
 
 	// 3、启动日志系统服务
 	void startLoggerSystem();
@@ -109,12 +85,30 @@ public:
     // 7、无协程id日志接口
     void log(LogType type, const char* fmt, ...);
 
-    // 8、获取对应日志类型的日志等级
+private:
+    // 1、日志系统主函数
+    void loggerSystemFunc();
+
+    // 2、获取对应日志类型的日志等级
     LogLevel getLogTypeLevel(LogType type);
 
-private:
-    // 1、日志系统协程
-    void comainLoggerSystem();
+    // 3、将缓冲区数据写入文件
+    bool writeLogMsgToFile(std::vector<LogMsg>& log_datas);
+
+    // 4、打开当前日志文件
+    bool openCurrentFile();
+
+    // 5、时间戳格式化
+    std::string formatTime(std::chrono::system_clock::time_point& timestamp);
+
+    // 6、根据日志类型返回类型信息
+    std::string getLogTypeInfo(LogType type);
+
+    // 7、日志滚动
+    void RotateLog();
+
+    // 8、处理剩余日志(程序退出时)
+    void flushRemaining();
 
 	// 构造函数私有，且移除拷贝构造和拷贝赋值
 	Common_Logger();
@@ -122,8 +116,54 @@ private:
 	Common_Logger& operator=(const Common_Logger&) = delete;
 
 private:
-	bool m_is_running;
-	task m_task;
-    SafeLogQueue<LogMsg> m_log_queue;
+    std::string m_log_path_;            // 日志文件保存路径
+    std::ofstream m_current_file_;      // 当前日志文件流
+    size_t m_max_file_size_;            // 文件最大存储字节
+    size_t m_current_file_size_;        // 当前文件的大小
+    int m_max_files_;
+
+	std::atomic<bool> m_is_running_;    // 运行标志
+    SafeLogQueue<LogMsg> m_log_queue_;  // 日志队列
+    std::thread m_log_thread_;          // 日志线程
+
+    std::mutex m_mtx_;                  // 等待锁
+    std::condition_variable m_cv_;       // 等待条件变量
 };
 
+
+
+template<typename T>
+inline bool SafeLogQueue<T>::push(const T& item)
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (queue_.size() >= max_size_)
+    {
+        return false; // 队列满，丢弃日志（避免阻塞业务）
+    }
+    queue_.push(item);
+    cv_.notify_one(); // 通知消费者
+    return true;
+}
+
+template<typename T>
+inline bool SafeLogQueue<T>::pop(T& item, bool& stop)
+{
+    std::unique_lock<std::mutex> lock(mtx_);
+    cv_.wait(lock, [this, &stop]() {
+        return !queue_.empty() || stop;
+        });
+    if (stop) return false; // 退出信号
+    item = queue_.front();
+    queue_.pop();
+    return true;
+}
+
+template<typename T>
+inline void SafeLogQueue<T>::clear()
+{
+    std::lock_guard<std::mutex> lock(mtx_);
+    while (!queue_.empty())
+    {
+        queue_.pop();
+    }
+}
